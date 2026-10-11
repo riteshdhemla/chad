@@ -59,3 +59,24 @@ def _fresh_ambient(monkeypatch):
 
 
 
+
+# These modules assert token-for-token equality between a chunked/speculative decode and
+# plain greedy on a tiny random model whose top-2 logit margins are ~1e-3. MLX's float32
+# matmul on newer Apple GPUs (M5) is reduced-precision and shape-dependent (chunked vs
+# one-token forwards differ by ~6e-3), which flips those near-ties; the CPU is exact
+# (~1e-6). The invariant under test is the engine's bookkeeping, not GPU numerics.
+_CPU_EXACT_MODULES = {"test_engine_dflash", "test_engine_pld_hybrid", "test_engine_pld_wide"}
+
+
+@pytest.fixture(autouse=True)
+def _exact_device(request):
+    if request.module.__name__ not in _CPU_EXACT_MODULES:
+        yield
+        return
+    mx = pytest.importorskip("mlx.core")
+    previous = mx.default_device()
+    mx.set_default_device(mx.cpu)
+    try:
+        yield
+    finally:
+        mx.set_default_device(previous)
